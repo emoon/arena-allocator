@@ -101,8 +101,10 @@ mod windows {
     const FORMAT_MESSAGE_FROM_SYSTEM: u32 = 0x00001000;
     const FORMAT_MESSAGE_IGNORE_INSERTS: u32 = 0x00000200;
 
-    const MEM_RESERVE: u32 = 0x00002000;
     const MEM_COMMIT: u32 = 0x00001000;
+    const MEM_RELEASE: u32 = 0x8000;
+    const MEM_RESERVE: u32 = 0x00002000;
+    const PAGE_NOACCESS: u32 = 0x01;
     const PAGE_READWRITE: u32 = 0x04;
 
     #[repr(C)]
