@@ -94,7 +94,8 @@ mod posix {
 #[cfg(target_os = "windows")]
 mod windows {
     use std::{ffi::OsString, os::windows::ffi::OsStringExt, ptr::null_mut};
-    use core::ptr::null_mut;
+    use core::{ffi::c_void, mem::zeroed};
+    use crate::ArenaError;
 
     const FORMAT_MESSAGE_ALLOCATE_BUFFER: u32 = 0x00000100;
     const FORMAT_MESSAGE_FROM_SYSTEM: u32 = 0x00001000;
@@ -179,36 +180,36 @@ mod windows {
         }
     }
 
-    pub(crate) fn reserve_range(size: usize) -> Result<*mut c_void, Error> {
+    pub(crate) fn reserve_range(size: usize) -> Result<*mut c_void, ArenaError> {
         let ptr = unsafe { VirtualAlloc(null_mut(), size, MEM_RESERVE, PAGE_READWRITE) };
         if ptr.is_null() {
-            return Err(Error::ReserveFailed(get_last_error_message()));
+            return Err(ArenaError::ReserveFailed(get_last_error_message()));
         }
         Ok(ptr)
     }
 
-    pub(crate) fn commit_memory(ptr: *mut core::ffi::c_void, size: usize) -> Result<(), Error> {
+    pub(crate) fn commit_memory(ptr: *mut core::ffi::c_void, size: usize) -> Result<(), ArenaError> {
         let mut old_protect: u32 = 0;
         let success = unsafe { VirtualProtect(ptr, size, PAGE_READWRITE, &mut old_protect) };
         if success == 0 {
-            return Err(Error::ProtectionFailed(get_last_error_message()));
+            return Err(ArenaError::ProtectionFailed(get_last_error_message()));
         }
         Ok(())
     }
 
-    pub(crate) fn decommit_memory(ptr: *mut core::ffi::c_void, size: usize) -> Result<(), Error> {
+    pub(crate) fn decommit_memory(ptr: *mut core::ffi::c_void, size: usize) -> Result<(), ArenaError> {
         let mut old_protect: u32 = 0;
         let success = unsafe { VirtualProtect(ptr, size, PAGE_NOACCESS, &mut old_protect) };
         if success == 0 {
-            return Err(Error::ProtectionFailed(get_last_error_message()));
+            return Err(ArenaError::ProtectionFailed(get_last_error_message()));
         }
         Ok(())
     }
 
-    pub(crate) fn release_memory(ptr: *mut core::ffi::c_void, size: usize) -> Result<(), Error> {
+    pub(crate) fn release_memory(ptr: *mut core::ffi::c_void, size: usize) -> Result<(), ArenaError> {
         let success = unsafe { VirtualFree(ptr, 0, MEM_RELEASE) };
         if success == 0 {
-            return Err(Error::ProtectionFailed(get_last_error_message()));
+            return Err(ArenaError::ProtectionFailed(get_last_error_message()));
         }
         Ok(())
     }
