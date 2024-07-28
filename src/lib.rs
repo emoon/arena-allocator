@@ -37,15 +37,24 @@ mod posix {
         fn strerror_r(errnum: i32, buf: *mut i8, buflen: usize) -> i32;
         fn __errno_location() -> *mut i32;
         fn sysconf(name: i32) -> i64;
-        fn munmap(addr: *mut core::ffi::c_void, length: usize) -> i32;
+        //fn munmap(addr: *mut core::ffi::c_void, length: usize) -> i32;
     }
 
     pub(crate) fn get_page_size() -> usize {
         unsafe { sysconf(_SC_PAGESIZE) as usize }
     }
 
+    #[cfg(not(target_os = "macos"))]
     fn get_last_error_code() -> i32 {
         unsafe { *__errno_location() }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn get_last_error_code() -> i32 {
+        extern "C" {
+            fn __error() -> *mut i32;
+        }
+        unsafe { *__error() }
     }
 
     fn get_last_error_message() -> String {
