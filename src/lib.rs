@@ -1,6 +1,6 @@
-use std::result::Result;
 use core::ffi::c_void;
-    
+use std::result::Result;
+
 #[derive(Debug)]
 pub enum ArenaError {
     ReserveFailed(String),
@@ -10,9 +10,9 @@ pub enum ArenaError {
 
 #[cfg(not(target_os = "windows"))]
 mod posix {
-    use core::ptr::null_mut;
-    use core::ffi::c_void;
     use crate::ArenaError;
+    use core::ffi::c_void;
+    use core::ptr::null_mut;
 
     // POSIX Constants
     const _SC_PAGESIZE: i32 = 30;
@@ -75,7 +75,10 @@ mod posix {
         Ok(ptr)
     }
 
-    pub(crate) fn commit_memory(ptr: *mut core::ffi::c_void, size: usize) -> Result<(), ArenaError> {
+    pub(crate) fn commit_memory(
+        ptr: *mut core::ffi::c_void,
+        size: usize,
+    ) -> Result<(), ArenaError> {
         let result = unsafe { mprotect(ptr, size, PROT_READ | PROT_WRITE) };
         if result != 0 {
             return Err(ArenaError::ProtectionFailed(get_last_error_message()));
@@ -83,7 +86,10 @@ mod posix {
         Ok(())
     }
 
-    pub(crate) fn decommit_memory(ptr: *mut core::ffi::c_void, size: usize) -> Result<(), ArenaError> {
+    pub(crate) fn decommit_memory(
+        ptr: *mut core::ffi::c_void,
+        size: usize,
+    ) -> Result<(), ArenaError> {
         let result = unsafe { mprotect(ptr, size, PROT_NONE) };
         if result != 0 {
             return Err(ArenaError::ProtectionFailed(get_last_error_message()));
@@ -94,9 +100,9 @@ mod posix {
 
 #[cfg(target_os = "windows")]
 mod windows {
-    use std::{ffi::OsString, os::windows::ffi::OsStringExt, ptr::null_mut};
-    use core::{ffi::c_void, mem::zeroed};
     use crate::ArenaError;
+    use core::{ffi::c_void, mem::zeroed};
+    use std::{ffi::OsString, os::windows::ffi::OsStringExt, ptr::null_mut};
 
     const FORMAT_MESSAGE_ALLOCATE_BUFFER: u32 = 0x00000100;
     const FORMAT_MESSAGE_FROM_SYSTEM: u32 = 0x00001000;
@@ -138,8 +144,18 @@ mod windows {
             Arguments: *mut *mut u8,
         ) -> u32;
         fn LocalFree(hMem: *mut core::ffi::c_void) -> *mut core::ffi::c_void;
-        fn VirtualAlloc(lpAddress: *mut core::ffi::c_void, dwSize: usize, flAllocationType: u32, flProtect: u32) -> *mut core::ffi::c_void;
-        fn VirtualProtect(lpAddress: *mut core::ffi::c_void, dwSize: usize, flNewProtect: u32, lpflOldProtect: *mut u32) -> i32;
+        fn VirtualAlloc(
+            lpAddress: *mut core::ffi::c_void,
+            dwSize: usize,
+            flAllocationType: u32,
+            flProtect: u32,
+        ) -> *mut core::ffi::c_void;
+        fn VirtualProtect(
+            lpAddress: *mut core::ffi::c_void,
+            dwSize: usize,
+            flNewProtect: u32,
+            lpflOldProtect: *mut u32,
+        ) -> i32;
         fn VirtualFree(lpAddress: *mut core::ffi::c_void, dwSize: usize, dwFreeType: u32) -> i32;
     }
 
@@ -165,7 +181,9 @@ mod windows {
 
             let mut buf: *mut u16 = null_mut();
             let size = FormatMessageW(
-                FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+                FORMAT_MESSAGE_ALLOCATE_BUFFER
+                    | FORMAT_MESSAGE_FROM_SYSTEM
+                    | FORMAT_MESSAGE_IGNORE_INSERTS,
                 null_mut(),
                 error_code,
                 0,
@@ -178,7 +196,9 @@ mod windows {
                 return format!("Unknown error code: {}", error_code);
             }
 
-            let message = OsString::from_wide(core::slice::from_raw_parts(buf, size as usize)).to_string_lossy().into_owned();
+            let message = OsString::from_wide(core::slice::from_raw_parts(buf, size as usize))
+                .to_string_lossy()
+                .into_owned();
             LocalFree(buf as *mut _);
             message
         }
@@ -192,7 +212,10 @@ mod windows {
         Ok(ptr)
     }
 
-    pub(crate) fn commit_memory(ptr: *mut core::ffi::c_void, size: usize) -> Result<(), ArenaError> {
+    pub(crate) fn commit_memory(
+        ptr: *mut core::ffi::c_void,
+        size: usize,
+    ) -> Result<(), ArenaError> {
         let success = unsafe { VirtualAlloc(ptr, size, MEM_COMMIT, PAGE_READWRITE) };
         if success.is_null() {
             return Err(ArenaError::ProtectionFailed(get_last_error_message()));
@@ -200,7 +223,10 @@ mod windows {
         Ok(())
     }
 
-    pub(crate) fn decommit_memory(ptr: *mut core::ffi::c_void, size: usize) -> Result<(), ArenaError> {
+    pub(crate) fn decommit_memory(
+        ptr: *mut core::ffi::c_void,
+        size: usize,
+    ) -> Result<(), ArenaError> {
         let success = unsafe { VirtualFree(ptr, size, MEM_DECOMMIT) };
         if success == 0 {
             return Err(ArenaError::ProtectionFailed(get_last_error_message()));
@@ -249,7 +275,7 @@ impl<'a> Arena<'a> {
         if self.committed_size + commit_size > self.reserved_size {
             return Err(ArenaError::OutOfReservedMemory);
         }
-        
+
         // If we have already committed the memory, we can just return a slice
         if new_pos < self.committed_size {
             let return_slice = unsafe { std::slice::from_raw_parts_mut(self.ptr as *mut u8, size) };
@@ -260,7 +286,8 @@ impl<'a> Arena<'a> {
         unsafe { commit_memory(self.ptr.add(self.committed_size), commit_size)? };
 
         self.committed_size += commit_size;
-        let return_slice = unsafe { std::slice::from_raw_parts_mut(self.ptr.add(self.pos) as *mut u8, size) };
+        let return_slice =
+            unsafe { std::slice::from_raw_parts_mut(self.ptr.add(self.pos) as *mut u8, size) };
         self.pos = new_pos;
         Ok(return_slice)
     }
@@ -277,7 +304,7 @@ pub struct TypedArena<'a, T: Default + Sized> {
     ptr_type: core::marker::PhantomData<&'a T>,
 }
 
-impl <'a, T: Default + Sized> TypedArena<'a, T> {
+impl<'a, T: Default + Sized> TypedArena<'a, T> {
     pub fn new(size: usize) -> Result<Self, ArenaError> {
         Ok(Self {
             arena: Arena::new(size)?,
@@ -286,14 +313,18 @@ impl <'a, T: Default + Sized> TypedArena<'a, T> {
     }
 
     pub fn alloc(&mut self) -> Result<&'a mut T, ArenaError> {
-        let slice = self.arena.alloc(core::mem::size_of::<T>(), core::mem::align_of::<T>())?;
+        let slice = self
+            .arena
+            .alloc(core::mem::size_of::<T>(), core::mem::align_of::<T>())?;
         let ptr = slice.as_mut_ptr() as *mut T;
         unsafe { ptr.write(T::default()) };
         Ok(unsafe { &mut *ptr })
     }
 
     pub fn alloc_array(&mut self, size: usize) -> Result<&'a mut [T], ArenaError> {
-        let mem = self.arena.alloc(core::mem::size_of::<T>() * size, core::mem::align_of::<T>())?;
+        let mem = self
+            .arena
+            .alloc(core::mem::size_of::<T>() * size, core::mem::align_of::<T>())?;
         let ptr = mem.as_mut_ptr() as *mut T;
         let slice = unsafe { std::slice::from_raw_parts_mut(ptr, size) };
 
