@@ -37,6 +37,7 @@ mod posix {
         fn strerror_r(errnum: i32, buf: *mut i8, buflen: usize) -> i32;
         fn __errno_location() -> *mut i32;
         fn sysconf(name: i32) -> i64;
+        fn munmap(addr: *mut core::ffi::c_void, length: usize) -> i32;
     }
 
     pub(crate) fn get_page_size() -> usize {
@@ -75,6 +76,14 @@ mod posix {
 
     pub(crate) fn decommit_memory(ptr: *mut core::ffi::c_void, size: usize) -> Result<(), ArenaError> {
         let result = unsafe { mprotect(ptr, size, PROT_NONE) };
+        if result != 0 {
+            return Err(ArenaError::ProtectionFailed(get_last_error_message()));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn release_memory(ptr: *mut core::ffi::c_void, size: usize) -> Result<(), ArenaError> {
+        let result = unsafe { munmap(ptr, size) };
         if result != 0 {
             return Err(ArenaError::ProtectionFailed(get_last_error_message()));
         }
@@ -126,6 +135,7 @@ mod windows {
         fn LocalFree(hMem: *mut core::ffi::c_void) -> *mut core::ffi::c_void;
         fn VirtualAlloc(lpAddress: *mut core::ffi::c_void, dwSize: usize, flAllocationType: u32, flProtect: u32) -> *mut core::ffi::c_void;
         fn VirtualProtect(lpAddress: *mut core::ffi::c_void, dwSize: usize, flNewProtect: u32, lpflOldProtect: *mut u32) -> i32;
+        fn VirtualFree(lpAddress: *mut core::ffi::c_void, dwSize: usize, dwFreeType: u32) -> i32;
     }
 
     fn get_system_info() -> SYSTEM_INFO {
@@ -194,6 +204,14 @@ mod windows {
         }
         Ok(())
     }
+
+    pub(crate) fn release_memory(ptr: *mut core::ffi::c_void, size: usize) -> Result<(), Error> {
+        let success = unsafe { VirtualFree(ptr, 0, MEM_RELEASE) };
+        if success == 0 {
+            return Err(Error::ProtectionFailed(get_last_error_message()));
+        }
+        Ok(())
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -256,6 +274,7 @@ impl<'a> Arena<'a> {
 impl Drop for Arena<'_> {
     fn drop(&mut self) {
         decommit_memory(self.ptr, self.committed_size).unwrap();
+        release_memory(self.ptr, self.reserved_size).unwrap();
     }
 }
 
