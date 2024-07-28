@@ -21,7 +21,13 @@ mod posix {
     const PROT_READ: i32 = 0x1;
     const PROT_WRITE: i32 = 0x2;
     const MAP_PRIVATE: i32 = 0x02;
+
+    #[cfg(target_os = "macos")]
+    const MAP_ANON: i32 = 0x1000;
+
+    #[cfg(not(target_os = "macos"))]
     const MAP_ANON: i32 = 0x20;
+
     const MAP_FAILED: *mut core::ffi::c_void = !0 as *mut core::ffi::c_void;
 
     extern "C" {
