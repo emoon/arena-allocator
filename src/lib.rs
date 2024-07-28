@@ -81,14 +81,6 @@ mod posix {
         }
         Ok(())
     }
-
-    pub(crate) fn release_memory(ptr: *mut core::ffi::c_void, size: usize) -> Result<(), ArenaError> {
-        let result = unsafe { munmap(ptr, size) };
-        if result != 0 {
-            return Err(ArenaError::ProtectionFailed(get_last_error_message()));
-        }
-        Ok(())
-    }
 }
 
 #[cfg(target_os = "windows")]
@@ -102,6 +94,7 @@ mod windows {
     const FORMAT_MESSAGE_IGNORE_INSERTS: u32 = 0x00000200;
 
     const MEM_COMMIT: u32 = 0x00001000;
+    const MEM_DECOMMIT: u32 = 0x00004000;
     const MEM_RELEASE: u32 = 0x8000;
     const MEM_RESERVE: u32 = 0x00002000;
     const PAGE_NOACCESS: u32 = 0x01;
@@ -191,25 +184,15 @@ mod windows {
     }
 
     pub(crate) fn commit_memory(ptr: *mut core::ffi::c_void, size: usize) -> Result<(), ArenaError> {
-        let mut old_protect: u32 = 0;
-        let success = unsafe { VirtualProtect(ptr, size, PAGE_READWRITE, &mut old_protect) };
-        if success == 0 {
+        let success = unsafe { VirtualAlloc(ptr, size, MEM_COMMIT, PAGE_READWRITE) };
+        if success.is_null() {
             return Err(ArenaError::ProtectionFailed(get_last_error_message()));
         }
         Ok(())
     }
 
     pub(crate) fn decommit_memory(ptr: *mut core::ffi::c_void, size: usize) -> Result<(), ArenaError> {
-        let mut old_protect: u32 = 0;
-        let success = unsafe { VirtualProtect(ptr, size, PAGE_NOACCESS, &mut old_protect) };
-        if success == 0 {
-            return Err(ArenaError::ProtectionFailed(get_last_error_message()));
-        }
-        Ok(())
-    }
-
-    pub(crate) fn release_memory(ptr: *mut core::ffi::c_void, size: usize) -> Result<(), ArenaError> {
-        let success = unsafe { VirtualFree(ptr, 0, MEM_RELEASE) };
+        let success = unsafe { VirtualFree(ptr, size, MEM_DECOMMIT) };
         if success == 0 {
             return Err(ArenaError::ProtectionFailed(get_last_error_message()));
         }
@@ -221,7 +204,7 @@ mod windows {
 pub(crate) use posix::*;
 
 #[cfg(target_os = "windows")]
-pub use windows::*;
+pub(crate) use windows::*;
 
 pub struct Arena<'a> {
     ptr: *mut c_void,
@@ -277,7 +260,6 @@ impl<'a> Arena<'a> {
 impl Drop for Arena<'_> {
     fn drop(&mut self) {
         decommit_memory(self.ptr, self.committed_size).unwrap();
-        release_memory(self.ptr, self.reserved_size).unwrap();
     }
 }
 
