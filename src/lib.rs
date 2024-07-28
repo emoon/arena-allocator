@@ -299,12 +299,15 @@ impl <'a, T: Default + Sized> TypedArena<'a, T> {
     }
 
     pub fn alloc_array(&mut self, size: usize) -> Result<&'a mut [T], ArenaError> {
-        let slice = self.arena.alloc(core::mem::size_of::<T>() * size, core::mem::align_of::<T>())?;
-        let ptr = slice.as_mut_ptr() as *mut T;
-        for i in 0..size {
-            unsafe { ptr.add(i).write(T::default()) };
+        let mem = self.arena.alloc(core::mem::size_of::<T>() * size, core::mem::align_of::<T>())?;
+        let ptr = mem.as_mut_ptr() as *mut T;
+        let slice = unsafe { std::slice::from_raw_parts_mut(ptr, size) };
+
+        for v in slice.iter_mut() {
+            *v = T::default();
         }
-        Ok(unsafe { std::slice::from_raw_parts_mut(ptr, size) })
+
+        Ok(slice)
     }
 }
 
