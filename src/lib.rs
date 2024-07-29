@@ -11,56 +11,20 @@ pub enum ArenaError {
 #[cfg(not(target_os = "windows"))]
 mod posix {
     use crate::ArenaError;
-    use core::ffi::c_void;
+    use core::ffi::{c_void, CStr};
     use core::ptr::null_mut;
+    use libc::{sysconf, mmap, mprotect, strerror_r};
+    use libc::{MAP_ANON, MAP_PRIVATE, PROT_NONE, PROT_READ, PROT_WRITE, _SC_PAGESIZE};
+    use std::io;
 
-    // POSIX Constants
-    const _SC_PAGESIZE: i32 = 30;
-    const _SC_LARGE_PAGESIZE: i32 = 45;
-    const PROT_NONE: i32 = 0x0;
-    const PROT_READ: i32 = 0x1;
-    const PROT_WRITE: i32 = 0x2;
-    const MAP_PRIVATE: i32 = 0x02;
-
-    #[cfg(target_os = "macos")]
-    const MAP_ANON: i32 = 0x1000;
-
-    #[cfg(not(target_os = "macos"))]
-    const MAP_ANON: i32 = 0x20;
-
-    const MAP_FAILED: *mut core::ffi::c_void = !0 as *mut core::ffi::c_void;
-
-    extern "C" {
-        fn mmap(
-            addr: *mut core::ffi::c_void,
-            length: usize,
-            prot: i32,
-            flags: i32,
-            fd: i32,
-            offset: isize,
-        ) -> *mut core::ffi::c_void;
-        fn mprotect(addr: *mut core::ffi::c_void, len: usize, prot: i32) -> i32;
-        fn strerror_r(errnum: i32, buf: *mut i8, buflen: usize) -> i32;
-        fn __errno_location() -> *mut i32;
-        fn sysconf(name: i32) -> i64;
-        //fn munmap(addr: *mut core::ffi::c_void, length: usize) -> i32;
-    }
+    const MAP_FAILED: *mut c_void = !0 as *mut c_void;
 
     pub(crate) fn get_page_size() -> usize {
         unsafe { sysconf(_SC_PAGESIZE) as usize }
     }
 
-    #[cfg(not(target_os = "macos"))]
     fn get_last_error_code() -> i32 {
-        unsafe { *__errno_location() }
-    }
-
-    #[cfg(target_os = "macos")]
-    fn get_last_error_code() -> i32 {
-        extern "C" {
-            fn __error() -> *mut i32;
-        }
-        unsafe { *__error() }
+        io::Error::last_os_error().raw_os_error().unwrap_or(0)
     }
 
     fn get_last_error_message() -> String {
@@ -68,7 +32,7 @@ mod posix {
         let mut buf = [0i8; 256];
         unsafe {
             strerror_r(err_code, buf.as_mut_ptr(), buf.len());
-            let c_str = core::ffi::CStr::from_ptr(buf.as_ptr());
+            let c_str = CStr::from_ptr(buf.as_ptr());
             c_str.to_string_lossy().into_owned()
         }
     }
@@ -82,7 +46,7 @@ mod posix {
     }
 
     pub(crate) fn commit_memory(
-        ptr: *mut core::ffi::c_void,
+        ptr: *mut c_void,
         size: usize,
     ) -> Result<(), ArenaError> {
         let result = unsafe { mprotect(ptr, size, PROT_READ | PROT_WRITE) };
@@ -93,7 +57,7 @@ mod posix {
     }
 
     pub(crate) fn decommit_memory(
-        ptr: *mut core::ffi::c_void,
+        ptr: *mut c_void,
         size: usize,
     ) -> Result<(), ArenaError> {
         let result = unsafe { mprotect(ptr, size, PROT_NONE) };
