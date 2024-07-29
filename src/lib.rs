@@ -222,14 +222,15 @@ pub struct Arena<'a> {
 
 impl<'a> Arena<'a> {
     pub fn new(size: usize) -> Result<Self, ArenaError> {
-        let ptr = reserve_range(size)?;
+        let page_size = get_page_size();
+        let ptr = reserve_range(std::cmp::max(size, page_size))?;
         Ok(Self {
             ptr,
             reserved_size: size,
             committed_size: 0,
             pos: 0,
             marker: core::marker::PhantomData,
-            page_size: get_page_size(),
+            page_size
         })
     }
 
