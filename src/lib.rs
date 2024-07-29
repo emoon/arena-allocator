@@ -336,7 +336,7 @@ mod test {
 
     #[test]
     fn test_typed_arena() {
-        let mut arena = TypedArena::<u32>::new(16 * 1024).unwrap();
+        let mut arena = TypedArena::<u32>::new(32 * 1024).unwrap();
         let single = arena.alloc().unwrap();
         assert_eq!(*single, 0);
         *single = 42;
