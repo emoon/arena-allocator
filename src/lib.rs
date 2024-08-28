@@ -13,7 +13,7 @@ mod posix {
     use crate::ArenaError;
     use core::ffi::{c_void, CStr};
     use core::ptr::null_mut;
-    use libc::{sysconf, mmap, mprotect, strerror_r};
+    use libc::{mmap, mprotect, strerror_r, sysconf};
     use libc::{MAP_ANON, MAP_PRIVATE, PROT_NONE, PROT_READ, PROT_WRITE, _SC_PAGESIZE};
     use std::io;
 
@@ -45,10 +45,7 @@ mod posix {
         Ok(ptr)
     }
 
-    pub(crate) fn commit_memory(
-        ptr: *mut c_void,
-        size: usize,
-    ) -> Result<(), ArenaError> {
+    pub(crate) fn commit_memory(ptr: *mut c_void, size: usize) -> Result<(), ArenaError> {
         let result = unsafe { mprotect(ptr, size, PROT_READ | PROT_WRITE) };
         if result != 0 {
             return Err(ArenaError::ProtectionFailed(get_last_error_message()));
@@ -56,10 +53,7 @@ mod posix {
         Ok(())
     }
 
-    pub(crate) fn decommit_memory(
-        ptr: *mut c_void,
-        size: usize,
-    ) -> Result<(), ArenaError> {
+    pub(crate) fn decommit_memory(ptr: *mut c_void, size: usize) -> Result<(), ArenaError> {
         let result = unsafe { mprotect(ptr, size, PROT_NONE) };
         if result != 0 {
             return Err(ArenaError::ProtectionFailed(get_last_error_message()));
@@ -225,13 +219,13 @@ pub struct Arena<'a> {
 /// The way this works is that the memory is that all the memory is set as "no access".
 /// This means if some code is trying to access the memory it will cause a exception.
 ///
-enum UseSafteyRange {
-    Yes,
-    No,
-}
+//enum UseSafteyRange {
+//    Yes,
+//    No,
+//}
 
 impl<'a> Arena<'a> {
-    pub fn new(reserved_size: usize, use_saftey_range) -> Result<Self, ArenaError> {
+    pub fn new(reserved_size: usize) -> Result<Self, ArenaError> {
         let page_size = get_page_size();
         let ptr = reserve_range(std::cmp::max(reserved_size, page_size))?;
         Ok(Self {
@@ -240,7 +234,7 @@ impl<'a> Arena<'a> {
             committed_size: 0,
             pos: 0,
             marker: core::marker::PhantomData,
-            page_size
+            page_size,
         })
     }
 
@@ -251,9 +245,14 @@ impl<'a> Arena<'a> {
 
     /// Allocates a raw memory block in the arena.
     ///
-    /// Safety: The returned data is uninitialized. The caller must ensure that the data is
+    /// # Safety 
+    /// The returned data is uninitialized. The caller must ensure that the data is
     /// properly initialized.
-    pub unsafe fn alloc_raw(&mut self, size: usize, alignment: usize) -> Result<&'a mut [u8], ArenaError> {
+    pub unsafe fn alloc_raw(
+        &mut self,
+        size: usize,
+        alignment: usize,
+    ) -> Result<&'a mut [u8], ArenaError> {
         let new_pos = self.pos + Self::align_pow2(size, alignment);
         let commit_size = Self::align_pow2(size, self.page_size);
 
@@ -278,9 +277,13 @@ impl<'a> Arena<'a> {
 
     /// Allocates an array of `T` elements in the arena.
     ///
-    /// Safety: The returned data is uninitialized. The caller must ensure that the data is
+    /// # Safety
+    /// The returned data is uninitialized. The caller must ensure that the data is
     /// properly initialized.
-    pub unsafe fn alloc_array<T: Sized>(&mut self, count: usize) -> Result<&'a mut [T], ArenaError> {
+    pub unsafe fn alloc_array<T: Sized>(
+        &mut self,
+        count: usize,
+    ) -> Result<&'a mut [T], ArenaError> {
         let size = count * core::mem::size_of::<T>();
         let alignment = core::mem::align_of::<T>();
         let slice = self.alloc_raw(size, alignment)?;
@@ -309,7 +312,8 @@ impl<'a> Arena<'a> {
 
     /// Allocates a single instance of `T` in the arena.
     ///
-    /// Safety: The returned data is uninitialized. The caller must ensure that the data is
+    /// # Safety
+    /// The returned data is uninitialized. The caller must ensure that the data is
     /// properly initialized.
     pub unsafe fn alloc<T: Sized>(&mut self) -> Result<&'a mut T, ArenaError> {
         let size = core::mem::size_of::<T>();
@@ -339,7 +343,7 @@ impl<'a> Arena<'a> {
         self.committed_size = 0;
         self.pos = 0;
         Ok(())
-    } 
+    }
 }
 
 impl Drop for Arena<'_> {
