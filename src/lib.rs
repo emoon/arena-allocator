@@ -220,13 +220,23 @@ pub struct Arena<'a> {
     marker: core::marker::PhantomData<&'a c_void>,
 }
 
+/// Specifies whether the memory should be protected after it is decommitted.
+/// This is useful for debugging purposes, as it can help catch use-after-free bugs.
+/// The way this works is that the memory is that all the memory is set as "no access".
+/// This means if some code is trying to access the memory it will cause a exception.
+///
+enum UseSafteyRange {
+    Yes,
+    No,
+}
+
 impl<'a> Arena<'a> {
-    pub fn new(size: usize) -> Result<Self, ArenaError> {
+    pub fn new(reserved_size: usize, use_saftey_range) -> Result<Self, ArenaError> {
         let page_size = get_page_size();
-        let ptr = reserve_range(std::cmp::max(size, page_size))?;
+        let ptr = reserve_range(std::cmp::max(reserved_size, page_size))?;
         Ok(Self {
             ptr,
-            reserved_size: size,
+            reserved_size,
             committed_size: 0,
             pos: 0,
             marker: core::marker::PhantomData,
@@ -239,7 +249,11 @@ impl<'a> Arena<'a> {
         (x + b - 1) & !(b - 1)
     }
 
-    pub fn alloc(&mut self, size: usize, alignment: usize) -> Result<&'a mut [u8], ArenaError> {
+    /// Allocates a raw memory block in the arena.
+    ///
+    /// Safety: The returned data is uninitialized. The caller must ensure that the data is
+    /// properly initialized.
+    pub unsafe fn alloc_raw(&mut self, size: usize, alignment: usize) -> Result<&'a mut [u8], ArenaError> {
         let new_pos = self.pos + Self::align_pow2(size, alignment);
         let commit_size = Self::align_pow2(size, self.page_size);
 
@@ -249,19 +263,83 @@ impl<'a> Arena<'a> {
 
         // If we have already committed the memory, we can just return a slice
         if new_pos < self.committed_size {
-            let return_slice = unsafe { std::slice::from_raw_parts_mut(self.ptr as *mut u8, size) };
+            let return_slice = std::slice::from_raw_parts_mut(self.ptr as *mut u8, size);
             self.pos = new_pos;
             return Ok(return_slice);
         }
 
-        unsafe { commit_memory(self.ptr.add(self.committed_size), commit_size)? };
+        commit_memory(self.ptr.add(self.committed_size), commit_size)?;
 
         self.committed_size += commit_size;
-        let return_slice =
-            unsafe { std::slice::from_raw_parts_mut(self.ptr.add(self.pos) as *mut u8, size) };
+        let return_slice = std::slice::from_raw_parts_mut(self.ptr.add(self.pos) as *mut u8, size);
         self.pos = new_pos;
         Ok(return_slice)
     }
+
+    /// Allocates an array of `T` elements in the arena.
+    ///
+    /// Safety: The returned data is uninitialized. The caller must ensure that the data is
+    /// properly initialized.
+    pub unsafe fn alloc_array<T: Sized>(&mut self, count: usize) -> Result<&'a mut [T], ArenaError> {
+        let size = count * core::mem::size_of::<T>();
+        let alignment = core::mem::align_of::<T>();
+        let slice = self.alloc_raw(size, alignment)?;
+        let ptr = slice.as_mut_ptr() as *mut T;
+        Ok(unsafe { std::slice::from_raw_parts_mut(ptr, size) })
+    }
+
+    /// Allocates an array of `T` elements in the arena and initializes them with the default
+    /// value.
+    pub fn alloc_array_init<T: Default + Sized>(
+        &mut self,
+        count: usize,
+    ) -> Result<&'a mut [T], ArenaError> {
+        let size = count * core::mem::size_of::<T>();
+        let alignment = core::mem::align_of::<T>();
+        let slice = unsafe { self.alloc_raw(size, alignment)? };
+        let ptr = slice.as_mut_ptr() as *mut T;
+        let slice = unsafe { std::slice::from_raw_parts_mut(ptr, count) };
+
+        for v in slice.iter_mut() {
+            *v = T::default();
+        }
+
+        Ok(slice)
+    }
+
+    /// Allocates a single instance of `T` in the arena.
+    ///
+    /// Safety: The returned data is uninitialized. The caller must ensure that the data is
+    /// properly initialized.
+    pub unsafe fn alloc<T: Sized>(&mut self) -> Result<&'a mut T, ArenaError> {
+        let size = core::mem::size_of::<T>();
+        let alignment = core::mem::align_of::<T>();
+        let slice = self.alloc_raw(size, alignment)?;
+        let ptr = slice.as_mut_ptr() as *mut T;
+        Ok(unsafe { &mut *ptr })
+    }
+
+    pub fn alloc_init<T: Default + Sized>(&mut self) -> Result<&'a mut T, ArenaError> {
+        let size = core::mem::size_of::<T>();
+        let alignment = core::mem::align_of::<T>();
+        let slice = unsafe { self.alloc_raw(size, alignment)? };
+        let ptr = slice.as_mut_ptr() as *mut T;
+        unsafe { ptr.write(T::default()) };
+        Ok(unsafe { &mut *ptr })
+    }
+
+    #[inline]
+    pub fn rewind(&mut self) {
+        self.pos = 0;
+    }
+
+    #[inline]
+    pub fn decomit(&mut self) -> Result<(), ArenaError> {
+        decommit_memory(self.ptr, self.committed_size)?;
+        self.committed_size = 0;
+        self.pos = 0;
+        Ok(())
+    } 
 }
 
 impl Drop for Arena<'_> {
@@ -284,26 +362,11 @@ impl<'a, T: Default + Sized> TypedArena<'a, T> {
     }
 
     pub fn alloc(&mut self) -> Result<&'a mut T, ArenaError> {
-        let slice = self
-            .arena
-            .alloc(core::mem::size_of::<T>(), core::mem::align_of::<T>())?;
-        let ptr = slice.as_mut_ptr() as *mut T;
-        unsafe { ptr.write(T::default()) };
-        Ok(unsafe { &mut *ptr })
+        self.arena.alloc_init()
     }
 
-    pub fn alloc_array(&mut self, size: usize) -> Result<&'a mut [T], ArenaError> {
-        let mem = self
-            .arena
-            .alloc(core::mem::size_of::<T>() * size, core::mem::align_of::<T>())?;
-        let ptr = mem.as_mut_ptr() as *mut T;
-        let slice = unsafe { std::slice::from_raw_parts_mut(ptr, size) };
-
-        for v in slice.iter_mut() {
-            *v = T::default();
-        }
-
-        Ok(slice)
+    pub fn alloc_array(&mut self, count: usize) -> Result<&'a mut [T], ArenaError> {
+        self.arena.alloc_array_init(count)
     }
 }
 
@@ -314,7 +377,7 @@ mod test {
     #[test]
     fn test_arena() {
         let mut arena = Arena::new(16 * 1024).unwrap();
-        let slice = arena.alloc(1024, 16).unwrap();
+        let slice = unsafe { arena.alloc_raw(1024, 16).unwrap() };
         assert_eq!(slice.len(), 1024);
         assert_eq!(slice.as_ptr() as usize % 16, 0);
         assert!(slice.as_ptr() != std::ptr::null_mut());
@@ -330,7 +393,7 @@ mod test {
     fn test_fail_commit() {
         let size = 16 * 1024;
         let mut arena = Arena::new(size).unwrap();
-        let result = arena.alloc(size * 2, 16);
+        let result = unsafe { arena.alloc_raw(size * 2, 16) };
         assert!(result.is_err());
     }
 
