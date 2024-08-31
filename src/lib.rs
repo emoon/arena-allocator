@@ -552,7 +552,7 @@ mod test {
 }
 
 /*
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod tests {
     use libc::{fork, waitpid, WIFEXITED, WIFSIGNALED, SIGSEGV};
     use std::process;
@@ -583,13 +583,128 @@ mod tests {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 mod tests {
     #[test]
     fn test_crash_handling() {
         // No-op or a test that simply passes, if you want to avoid a false failure on other OSes
-        println!("This test is only run on Linux.");
+        println!("This test is only run on Linux and macOS.");
     }
 }
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod tests {
+    use libc::{fork, waitpid, WIFEXITED, WIFSIGNALED, SIGSEGV};
+    use std::process;
+
+    #[test]
+    fn test_crash_handling() {
+        unsafe {
+            let pid = fork();
+            if pid == -1 {
+                panic!("Failed to fork process");
+            } else if pid == 0 {
+                // Child process
+                // Cause a segmentation fault by dereferencing a null pointer
+                let ptr: *mut i32 = std::ptr::null_mut();
+                *ptr = 42; // This will cause a crash
+            } else {
+                // Parent process
+                let mut status = 0;
+                waitpid(pid, &mut status, 0);
+                if WIFSIGNALED(status) && libc::WTERMSIG(status) == SIGSEGV {
+                    println!("Child process crashed as expected");
+                } else if WIFEXITED(status) {
+                    println!("Child process exited normally, but crash was expected");
+                    process::exit(1); // Mark test as failed if child didn't crash
+                }
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+mod tests {
+    extern crate winapi;
+    use std::ptr::null_mut;
+    use std::process;
+    use winapi::um::processthreadsapi::{CreateProcessW, TerminateProcess, PROCESS_INFORMATION, STARTUPINFOW};
+    use winapi::um::errhandlingapi::RaiseException;
+    use winapi::um::winbase::{CREATE_NEW_CONSOLE, INFINITE};
+    use winapi::um::synchapi::WaitForSingleObject;
+    use winapi::um::winnt::{EXCEPTION_NONCONTINUABLE, EXCEPTION_ACCESS_VIOLATION};
+
+    #[test]
+    fn test_crash_handling() {
+        unsafe {
+            let mut si: STARTUPINFOW = std::mem::zeroed();
+            let mut pi: PROCESS_INFORMATION = std::mem::zeroed();
+            si.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
+
+            // Convert the command line to a wide string
+            let command = std::ffi::OsString::from("child_process");
+            let mut command_wide: Vec<u16> = command.encode_wide().collect();
+            command_wide.push(0);
+
+            // Create a new child process
+            let result = CreateProcessW(
+                null_mut(),                     // lpApplicationName
+                command_wide.as_mut_ptr(),      // lpCommandLine
+                null_mut(),                     // lpProcessAttributes
+                null_mut(),                     // lpThreadAttributes
+                0,                              // bInheritHandles
+                CREATE_NEW_CONSOLE,             // dwCreationFlags
+                null_mut(),                     // lpEnvironment
+                null_mut(),                     // lpCurrentDirectory
+                &mut si,                        // lpStartupInfo
+                &mut pi                         // lpProcessInformation
+            );
+
+            if result == 0 {
+                panic!("Failed to create child process");
+            }
+
+            // Simulate a crash in the child process
+            if pi.hProcess != null_mut() {
+                RaiseException(
+                    EXCEPTION_ACCESS_VIOLATION, // Exception code
+                    EXCEPTION_NONCONTINUABLE,   // Exception flags
+                    0,                          // Number of arguments
+                    null_mut(),                 // Arguments
+                );
+            }
+
+            // Wait for the child process to exit
+            WaitForSingleObject(pi.hProcess, INFINITE);
+
+            // Check if the child process crashed as expected
+            let mut exit_code: u32 = 0;
+            winapi::um::processthreadsapi::GetExitCodeProcess(pi.hProcess, &mut exit_code);
+            if exit_code == EXCEPTION_ACCESS_VIOLATION {
+                println!("Child process crashed as expected");
+            } else {
+                println!("Child process exited normally, but crash was expected");
+                process::exit(1); // Mark test as failed if child didn't crash
+            }
+
+            // Clean up handles
+            TerminateProcess(pi.hProcess, 0);
+            winapi::um::handleapi::CloseHandle(pi.hProcess);
+            winapi::um::handleapi::CloseHandle(pi.hThread);
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+mod tests {
+    #[test]
+    fn test_crash_handling() {
+        // No-op or a test that simply passes, if you want to avoid a false failure on other OSes
+        println!("This test is only run on Linux, macOS, and Windows.");
+    }
+}
+/[dev-dependencies]
+winapi = { version = "0.3", features = ["consoleapi", "processthreadsapi", "handleapi", "winbase", "errhandlingapi", "synchapi", "winnt"] }
+
 */
 
