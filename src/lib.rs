@@ -546,11 +546,13 @@ impl<'a> Arena<'a> {
     /// result in a crash, as demonstrated in the example below:
     ///
     /// ```
+    /// use arena_allocator::Arena;
+    ///
     /// let mut arena = Arena::new(16 * 1024).unwrap();
-    /// let t = arena.alloc::<u32>().unwrap(); 
+    /// let t = arena.alloc_init::<u32>().unwrap(); 
     /// *t = 42;
     /// arena.rewind();
-    /// *t = 43; // This will crash in debug mode
+    /// //*t = 43; // This will crash in debug mode
     /// ```
     ///
     /// # Usage
@@ -617,7 +619,9 @@ impl Drop for Arena<'_> {
 /// # Example
 ///
 /// ```rust
-/// let mut arena = TypedArena::<u32>::new(1024).unwrap();
+/// use arena_allocator::TypedArena;
+///
+/// let mut arena = TypedArena::<u32>::new(1024 * 1024).unwrap();
 /// let item = arena.alloc().unwrap();
 /// *item = 42;
 /// 
