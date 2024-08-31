@@ -60,6 +60,24 @@ mod posix {
         }
         Ok(())
     }
+
+    #[cfg(debug_assertions)]
+    pub(crate) fn protect_memory(ptr: *mut c_void, size: usize) -> Result<(), ArenaError> {
+        let result = unsafe { mprotect(ptr, size, PROT_NONE) };
+        if result != 0 {
+            return Err(ArenaError::ProtectionFailed(get_last_error_message()));
+        }
+        Ok(())
+    }
+
+    #[cfg(debug_assertions)]
+    pub(crate) fn unprotect_memory(ptr: *mut c_void, size: usize) -> Result<(), ArenaError> {
+        let result = unsafe { mprotect(ptr, size, PROT_READ | PROT_WRITE) };
+        if result != 0 {
+            return Err(ArenaError::ProtectionFailed(get_last_error_message()));
+        }
+        Ok(())
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -197,6 +215,34 @@ mod windows {
         }
         Ok(())
     }
+
+    #[cfg(debug_assertions)]
+    pub(crate) fn protect_memory(
+        ptr: *mut core::ffi::c_void,
+        size: usize,
+    ) -> Result<(), ArenaError> {
+        let mut old_protect = 0;
+        let success =
+            unsafe { VirtualProtect(ptr, size, PAGE_NOACCESS, &mut old_protect as *mut u32) };
+        if success == 0 {
+            return Err(ArenaError::ProtectionFailed(get_last_error_message()));
+        }
+        Ok(())
+    }
+
+    #[cfg(debug_assertions)]
+    pub(crate) fn unprotect_memory(
+        ptr: *mut core::ffi::c_void,
+        size: usize,
+    ) -> Result<(), ArenaError> {
+        let mut old_protect = 0;
+        let success =
+            unsafe { VirtualProtect(ptr, size, PAGE_READWRITE, &mut old_protect as *mut u32) };
+        if success == 0 {
+            return Err(ArenaError::ProtectionFailed(get_last_error_message()));
+        }
+        Ok(())
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -205,7 +251,8 @@ pub(crate) use posix::*;
 #[cfg(target_os = "windows")]
 pub(crate) use windows::*;
 
-pub struct Arena<'a> {
+#[derive(Copy, Clone)]
+struct VmRange<'a> {
     ptr: *mut c_void,
     reserved_size: usize,
     committed_size: usize,
@@ -224,7 +271,7 @@ pub struct Arena<'a> {
 //    No,
 //}
 
-impl<'a> Arena<'a> {
+impl<'a> VmRange<'a> {
     pub fn new(reserved_size: usize) -> Result<Self, ArenaError> {
         let page_size = get_page_size();
         let ptr = reserve_range(std::cmp::max(reserved_size, page_size))?;
@@ -245,10 +292,10 @@ impl<'a> Arena<'a> {
 
     /// Allocates a raw memory block in the arena.
     ///
-    /// # Safety 
+    /// # Safety
     /// The returned data is uninitialized. The caller must ensure that the data is
     /// properly initialized.
-    pub unsafe fn alloc_raw(
+    pub(crate) unsafe fn alloc_raw(
         &mut self,
         size: usize,
         alignment: usize,
@@ -280,7 +327,7 @@ impl<'a> Arena<'a> {
     /// # Safety
     /// The returned data is uninitialized. The caller must ensure that the data is
     /// properly initialized.
-    pub unsafe fn alloc_array<T: Sized>(
+    pub(crate) unsafe fn alloc_array<T: Sized>(
         &mut self,
         count: usize,
     ) -> Result<&'a mut [T], ArenaError> {
@@ -293,7 +340,7 @@ impl<'a> Arena<'a> {
 
     /// Allocates an array of `T` elements in the arena and initializes them with the default
     /// value.
-    pub fn alloc_array_init<T: Default + Sized>(
+    pub(crate) fn alloc_array_init<T: Default + Sized>(
         &mut self,
         count: usize,
     ) -> Result<&'a mut [T], ArenaError> {
@@ -315,7 +362,7 @@ impl<'a> Arena<'a> {
     /// # Safety
     /// The returned data is uninitialized. The caller must ensure that the data is
     /// properly initialized.
-    pub unsafe fn alloc<T: Sized>(&mut self) -> Result<&'a mut T, ArenaError> {
+    pub(crate) unsafe fn alloc<T: Sized>(&mut self) -> Result<&'a mut T, ArenaError> {
         let size = core::mem::size_of::<T>();
         let alignment = core::mem::align_of::<T>();
         let slice = self.alloc_raw(size, alignment)?;
@@ -323,7 +370,7 @@ impl<'a> Arena<'a> {
         Ok(unsafe { &mut *ptr })
     }
 
-    pub fn alloc_init<T: Default + Sized>(&mut self) -> Result<&'a mut T, ArenaError> {
+    pub(crate) fn alloc_init<T: Default + Sized>(&mut self) -> Result<&'a mut T, ArenaError> {
         let size = core::mem::size_of::<T>();
         let alignment = core::mem::align_of::<T>();
         let slice = unsafe { self.alloc_raw(size, alignment)? };
@@ -333,12 +380,22 @@ impl<'a> Arena<'a> {
     }
 
     #[inline]
-    pub fn rewind(&mut self) {
+    pub(crate) fn rewind(&mut self) {
         self.pos = 0;
     }
 
+    #[cfg(debug_assertions)]
+    pub(crate) fn protect(&mut self) {
+        protect_memory(self.ptr, self.committed_size).unwrap();
+    }
+
+    #[cfg(debug_assertions)]
+    pub(crate) fn unprotect(&mut self) {
+        unprotect_memory(self.ptr, self.committed_size).unwrap();
+    }
+
     #[inline]
-    pub fn decomit(&mut self) -> Result<(), ArenaError> {
+    pub(crate) fn decomit(&mut self) -> Result<(), ArenaError> {
         decommit_memory(self.ptr, self.committed_size)?;
         self.committed_size = 0;
         self.pos = 0;
@@ -346,9 +403,82 @@ impl<'a> Arena<'a> {
     }
 }
 
+pub struct Arena<'a> {
+    current: VmRange<'a>,
+    //#[cfg(debug_assertions)]
+    prev: VmRange<'a>,
+}
+
+impl<'a> Arena<'a> {
+    pub fn new(size: usize) -> Result<Self, ArenaError> {
+        let current = VmRange::new(size)?;
+        #[cfg(debug_assertions)]
+        let prev = VmRange::new(size)?;
+
+        Ok(Self {
+            current,
+            #[cfg(debug_assertions)]
+            prev,
+        })
+    }
+
+    pub unsafe fn alloc_raw(
+        &mut self,
+        size: usize,
+        alignment: usize,
+    ) -> Result<&'a mut [u8], ArenaError> {
+        self.current.alloc_raw(size, alignment)
+    }
+
+    pub unsafe fn alloc_array<T: Sized>(
+        &mut self,
+        count: usize,
+    ) -> Result<&'a mut [T], ArenaError> {
+        self.current.alloc_array(count)
+    }
+
+    pub unsafe fn alloc<T: Sized>(&mut self) -> Result<&'a mut T, ArenaError> {
+        self.current.alloc()
+    }
+
+    pub fn alloc_init<T: Default + Sized>(&mut self) -> Result<&'a mut T, ArenaError> {
+        self.current.alloc_init()
+    }
+
+    pub fn alloc_array_init<T: Default + Sized>(
+        &mut self,
+        count: usize,
+    ) -> Result<&'a mut [T], ArenaError> {
+        self.current.alloc_array_init(count)
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn rewind(&mut self) {
+        self.current.protect();
+
+        std::mem::swap(&mut self.current, &mut self.prev);
+
+        // Unprotect the new current range and rewind the position to the start
+        self.current.unprotect();
+        self.current.rewind();
+    }
+
+    #[cfg(not(debug_assertions))]
+    pub fn rewind(&mut self) {
+        self.current.rewind();
+    }
+}
+
 impl Drop for Arena<'_> {
+    #[cfg(debug_assertions)]
     fn drop(&mut self) {
-        decommit_memory(self.ptr, self.committed_size).unwrap();
+        self.current.decomit().unwrap();
+        self.prev.decomit().unwrap();
+    }
+
+    #[cfg(not(debug_assertions))]
+    fn drop(&mut self) {
+        self.current.decomit().unwrap();
     }
 }
 
