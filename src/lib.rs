@@ -550,3 +550,46 @@ mod test {
         }
     }
 }
+
+/*
+#[cfg(target_os = "linux")]
+mod tests {
+    use libc::{fork, waitpid, WIFEXITED, WIFSIGNALED, SIGSEGV};
+    use std::process;
+
+    #[test]
+    fn test_crash_handling() {
+        unsafe {
+            let pid = fork();
+            if pid == -1 {
+                panic!("Failed to fork process");
+            } else if pid == 0 {
+                // Child process
+                // Cause a segmentation fault by dereferencing a null pointer
+                let ptr: *mut i32 = std::ptr::null_mut();
+                *ptr = 42; // This will cause a crash
+            } else {
+                // Parent process
+                let mut status = 0;
+                waitpid(pid, &mut status, 0);
+                if WIFSIGNALED(status) && libc::WTERMSIG(status) == SIGSEGV {
+                    println!("Child process crashed as expected");
+                } else if WIFEXITED(status) {
+                    println!("Child process exited normally, but crash was expected");
+                    process::exit(1); // Mark test as failed if child didn't crash
+                }
+            }
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+mod tests {
+    #[test]
+    fn test_crash_handling() {
+        // No-op or a test that simply passes, if you want to avoid a false failure on other OSes
+        println!("This test is only run on Linux.");
+    }
+}
+*/
+
