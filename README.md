@@ -1,6 +1,13 @@
 # arena-allocator
 
-`arena-allocator` is a memory allocator crate for Rust that provides efficient memory management for temporary or short-lived allocations. It is designed to reduce the overhead and fragmentation associated with frequent small allocations by allocating memory in contiguous blocks. The crate offers a range of features, including rewinding the arena to reuse allocated memory, automatic memory protection in debug mode, and a typed arena for managing memory specific to a single type. 
+`arena-allocator` is a linear memory allocator for Rust that provides efficient memory management for performance-critical code. The way it's implemented is by reserving a (large) virtual range of memory and then commiting memory as it needs it. 
+This means that reserving a large range (several Gigabytes) of memory is cheap, but actually using it will cause the OS to allocate physical memory. 
+This is useful for cases where you need to allocate a lot of memory, or don't know how much memory you need.
+
+There are two main uses for this crate:
+
+1. Long-lived memory: If you have allocations that live for the entire lifetime of your program.
+2. Temporary memory: If you have a lot of temporary allocations that is only needed during a short period of time. 
 
 ## Saftey
 
@@ -11,14 +18,6 @@ It is important to understand the implications of using this crate and to follow
 In debug mode, the crate provides memory protection to help catch use-after-free bugs by causing crashes when invalid memory is accessed.
 
 See the Understanding rewind section for more information on how to use the rewind function to manage memory in the arena.
-
-## Features
-
-* Efficient Memory Management: The arena-allocator crate allocates memory in contiguous blocks, reducing fragmentation and overhead associated with frequent small allocations.
-* Rewind Function: The rewind function allows the entire arena to be reset to its initial state, enabling the rapid recycling of memory for temporary allocations.
-* Typed Arena: The TypedArena struct provides a type-specific arena for managing memory allocated to a single type, simplifying memory management and reducing the risk of errors.
-* Memory Protection: In debug mode, the arena-allocator crate protects the memory of invalidated objects, helping to catch use-after-free bugs by causing crashes when invalid memory is accessed.
-* Error Handling: The crate provides a custom ArenaError type to handle allocation errors, making it easier to manage memory allocation failures in Rust programs.
 
 ## Getting Started
 
