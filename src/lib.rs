@@ -72,9 +72,11 @@ mod posix {
 
     #[cfg(debug_assertions)]
     pub(crate) fn unprotect_memory(ptr: *mut c_void, size: usize) -> Result<(), ArenaError> {
-        let result = unsafe { mprotect(ptr, size, PROT_READ | PROT_WRITE) };
-        if result != 0 {
-            return Err(ArenaError::ProtectionFailed(get_last_error_message()));
+        if size > 0 {
+            let result = unsafe { mprotect(ptr, size, PROT_READ | PROT_WRITE) };
+            if result != 0 {
+                return Err(ArenaError::ProtectionFailed(get_last_error_message()));
+            }
         }
         Ok(())
     }
@@ -92,12 +94,12 @@ mod windows {
 
     const MEM_COMMIT: u32 = 0x00001000;
     const MEM_DECOMMIT: u32 = 0x00004000;
-    const MEM_RELEASE: u32 = 0x8000;
     const MEM_RESERVE: u32 = 0x00002000;
     const PAGE_NOACCESS: u32 = 0x01;
     const PAGE_READWRITE: u32 = 0x04;
 
     #[repr(C)]
+    #[allow(non_snake_case)]
     struct SYSTEM_INFO {
         wProcessorArchitecture: u16,
         wReserved: u16,
@@ -222,8 +224,7 @@ mod windows {
         size: usize,
     ) -> Result<(), ArenaError> {
         let mut old_protect = 0u32;
-        let success =
-            unsafe { VirtualProtect(ptr, size, PAGE_NOACCESS, &mut old_protect) };
+        let success = unsafe { VirtualProtect(ptr, size, PAGE_NOACCESS, &mut old_protect) };
         if success == 0 {
             return Err(ArenaError::ProtectionFailed(get_last_error_message()));
         }
@@ -235,11 +236,12 @@ mod windows {
         ptr: *mut core::ffi::c_void,
         size: usize,
     ) -> Result<(), ArenaError> {
-        let mut old_protect = 0u32;
-        let success =
-            unsafe { VirtualProtect(ptr, size, PAGE_READWRITE, &mut old_protect) };
-        if success == 0 {
-            return Err(ArenaError::ProtectionFailed(get_last_error_message()));
+        if size > 0 {
+            let mut old_protect = 0u32;
+            let success = unsafe { VirtualProtect(ptr, size, PAGE_READWRITE, &mut old_protect) };
+            if success == 0 {
+                return Err(ArenaError::ProtectionFailed(get_last_error_message()));
+            }
         }
         Ok(())
     }
@@ -405,41 +407,41 @@ impl<'a> VmRange<'a> {
 
 /// A memory arena for efficient allocation management.
 ///
-/// The `Arena` struct manages a reserved block of virtual memory, enabling fast, contiguous 
-/// allocations. This structure is particularly useful in scenarios where many small allocations 
+/// The `Arena` struct manages a reserved block of virtual memory, enabling fast, contiguous
+/// allocations. This structure is particularly useful in scenarios where many small allocations
 /// are required, as it minimizes overhead and fragmentation.
 ///
 /// # Primary Use-Cases
 ///
 /// The `Arena` is designed for two main allocation patterns:
 ///
-/// 1. **Long-Lived Allocations**: When allocations are expected to persist until the end of the 
-///    program. This use-case benefits from the arena's efficient management of memory, avoiding 
+/// 1. **Long-Lived Allocations**: When allocations are expected to persist until the end of the
+///    program. This use-case benefits from the arena's efficient management of memory, avoiding
 ///    the overhead of frequent deallocations.
 ///    
-/// 2. **Very Short-Lived Allocations**: When allocations are needed temporarily, and the allocator 
-///    is "rewinded" after the allocations are no longer needed. This pattern is ideal for scenarios 
-///    where large numbers of temporary objects are created and discarded in one go, as it allows for quick 
+/// 2. **Very Short-Lived Allocations**: When allocations are needed temporarily, and the allocator
+///    is "rewinded" after the allocations are no longer needed. This pattern is ideal for scenarios
+///    where large numbers of temporary objects are created and discarded in one go, as it allows for quick
 ///    cleanup and re-use of the allocated memory.
 ///
 /// # Fields
 ///
-/// - `current`: The active `VmRange` that tracks the currently allocated range within the reserved 
+/// - `current`: The active `VmRange` that tracks the currently allocated range within the reserved
 ///   memory. Allocations are performed from this range.
 ///
-/// - `prev`: A secondary `VmRange` used only in debug mode. This range mirrors the `current` range 
-///   and is protected after being decommitted, allowing detection of use-after-free errors. 
+/// - `prev`: A secondary `VmRange` used only in debug mode. This range mirrors the `current` range
+///   and is protected after being decommitted, allowing detection of use-after-free errors.
 ///   In release mode, this field is not used, and memory protection is disabled to maximize performance.
 ///
 /// # Usage
 ///
-/// The `Arena` is initialized with a specified size through the `Arena::new` function. While the 
-/// entire size is reserved in virtual memory, physical memory is only committed in page-sized chunks 
-/// as needed. This design ensures that the memory footprint remains minimal until actual allocations 
+/// The `Arena` is initialized with a specified size through the `Arena::new` function. While the
+/// entire size is reserved in virtual memory, physical memory is only committed in page-sized chunks
+/// as needed. This design ensures that the memory footprint remains minimal until actual allocations
 /// occur.
 ///
-/// In debug builds, additional memory protection is enabled to catch potential memory safety issues 
-/// such as use-after-free, though this comes at the cost of increased memory usage. This feature is 
+/// In debug builds, additional memory protection is enabled to catch potential memory safety issues
+/// such as use-after-free, though this comes at the cost of increased memory usage. This feature is
 /// automatically disabled in release builds for optimal performance.
 pub struct Arena<'a> {
     current: VmRange<'a>,
@@ -448,13 +450,13 @@ pub struct Arena<'a> {
 }
 
 impl<'a> Arena<'a> {
-    /// Initializes a new `Arena` with the specified size. The `size` parameter defines the amount 
-    /// of reserved virtual memory. It is recommended to choose a large size since this reservation 
-    /// does not immediately consume physical memory. On a 64-bit system, reserving a few gigabytes 
-    /// is generally acceptable. Physical memory is committed incrementally in page-sized chunks 
+    /// Initializes a new `Arena` with the specified size. The `size` parameter defines the amount
+    /// of reserved virtual memory. It is recommended to choose a large size since this reservation
+    /// does not immediately consume physical memory. On a 64-bit system, reserving a few gigabytes
+    /// is generally acceptable. Physical memory is committed incrementally in page-sized chunks
     /// as allocations occur.
     ///
-    /// In debug mode, decommitted memory is protected to detect use-after-free errors, resulting 
+    /// In debug mode, decommitted memory is protected to detect use-after-free errors, resulting
     /// in double the memory reservation. This protection is disabled in release mode.
     pub fn new(size: usize) -> Result<Self, ArenaError> {
         let current = VmRange::new(size)?;
@@ -470,13 +472,13 @@ impl<'a> Arena<'a> {
 
     /// Allocates a raw memory block in the arena.
     ///
-    /// This function allocates a block of uninitialized memory within the arena. The size and alignment 
-    /// of the block are specified by the caller. The allocated memory is contiguous and may be used 
+    /// This function allocates a block of uninitialized memory within the arena. The size and alignment
+    /// of the block are specified by the caller. The allocated memory is contiguous and may be used
     /// for any purpose that requires raw, untyped data.
     ///
     /// # Safety
-    /// The returned memory is uninitialized, and it is the caller's responsibility to ensure that 
-    /// the memory is properly initialized before it is used. Failing to do so may result in undefined 
+    /// The returned memory is uninitialized, and it is the caller's responsibility to ensure that
+    /// the memory is properly initialized before it is used. Failing to do so may result in undefined
     /// behavior.
     pub unsafe fn alloc_raw(
         &mut self,
@@ -488,13 +490,13 @@ impl<'a> Arena<'a> {
 
     /// Allocates an array of `T` elements in the arena.
     ///
-    /// This function allocates uninitialized memory for an array of elements of type `T`. The number 
-    /// of elements is specified by the `count` parameter. The memory is contiguous and properly aligned 
+    /// This function allocates uninitialized memory for an array of elements of type `T`. The number
+    /// of elements is specified by the `count` parameter. The memory is contiguous and properly aligned
     /// for the type `T`.
     ///
     /// # Safety
-    /// The returned array is uninitialized, and it is the caller's responsibility to initialize the 
-    /// elements before use. Using uninitialized data can lead to undefined behavior. After the arena 
+    /// The returned array is uninitialized, and it is the caller's responsibility to initialize the
+    /// elements before use. Using uninitialized data can lead to undefined behavior. After the arena
     /// is rewound, all references to this array become invalid.
     pub unsafe fn alloc_array<T: Sized>(
         &mut self,
@@ -508,15 +510,15 @@ impl<'a> Arena<'a> {
     /// This function allocates uninitialized memory for a single instance of type `T`.
     ///
     /// # Safety
-    /// The returned instance is uninitialized, and the caller must ensure that it is initialized 
-    /// before any use. Uninitialized memory can lead to undefined behavior if accessed. 
+    /// The returned instance is uninitialized, and the caller must ensure that it is initialized
+    /// before any use. Uninitialized memory can lead to undefined behavior if accessed.
     pub unsafe fn alloc<T: Sized>(&mut self) -> Result<&'a mut T, ArenaError> {
         self.current.alloc()
     }
 
     /// Allocates a single instance of `T` in the arena and initializes it with the default value.
     ///
-    /// This function allocates memory for a single instance of type `T` and initializes it using 
+    /// This function allocates memory for a single instance of type `T` and initializes it using
     /// `T::default()`.
     pub fn alloc_init<T: Default + Sized>(&mut self) -> Result<&'a mut T, ArenaError> {
         self.current.alloc_init()
@@ -524,8 +526,8 @@ impl<'a> Arena<'a> {
 
     /// Allocates an array of `T` elements in the arena and initializes them with the default value.
     ///
-    /// This function allocates memory for an array of elements of type `T`, and initializes each 
-    /// element using `T::default()`. 
+    /// This function allocates memory for an array of elements of type `T`, and initializes each
+    /// element using `T::default()`.
     pub fn alloc_array_init<T: Default + Sized>(
         &mut self,
         count: usize,
@@ -535,21 +537,21 @@ impl<'a> Arena<'a> {
 
     /// Rewinds the arena to its initial state.
     ///
-    /// This method resets the allocation position to the start of the arena without deallocating 
-    /// the memory. After calling `rewind`, all references to previously allocated memory in the 
+    /// This method resets the allocation position to the start of the arena without deallocating
+    /// the memory. After calling `rewind`, all references to previously allocated memory in the
     /// arena should be considered invalid, as any subsequent allocation will overwrite this memory.
     ///
     /// # Memory Safety
     ///
-    /// In debug mode, calling `rewind` will protect the memory that has been rewound, helping to 
-    /// catch use-after-free bugs. Any access to memory that was allocated before the `rewind` will 
+    /// In debug mode, calling `rewind` will protect the memory that has been rewound, helping to
+    /// catch use-after-free bugs. Any access to memory that was allocated before the `rewind` will
     /// result in a crash, as demonstrated in the example below:
     ///
     /// ```
     /// use arena_allocator::Arena;
     ///
     /// let mut arena = Arena::new(16 * 1024).unwrap();
-    /// let t = arena.alloc_init::<u32>().unwrap(); 
+    /// let t = arena.alloc_init::<u32>().unwrap();
     /// *t = 42;
     /// arena.rewind();
     /// //*t = 43; // This will crash in debug mode
@@ -557,11 +559,11 @@ impl<'a> Arena<'a> {
     ///
     /// # Usage
     ///
-    /// This method is particularly useful in scenarios where the arena is used for very short-lived 
-    /// allocations that are discarded en masse. By rewinding the arena, the allocator can quickly 
+    /// This method is particularly useful in scenarios where the arena is used for very short-lived
+    /// allocations that are discarded en masse. By rewinding the arena, the allocator can quickly
     /// reset and re-use the reserved memory without the overhead of deallocation and reallocation.
     ///
-    /// In release mode, the memory protection mechanism is disabled to ensure optimal performance, 
+    /// In release mode, the memory protection mechanism is disabled to ensure optimal performance,
     /// but in debug mode, the additional checks help identify improper memory usage patterns.
     #[cfg(debug_assertions)]
     pub fn rewind(&mut self) {
@@ -595,25 +597,25 @@ impl Drop for Arena<'_> {
 
 /// A type-specific memory arena for efficient allocation of `T` elements.
 ///
-/// `TypedArena` is a specialized memory allocator designed for managing objects of a single type `T`. 
-/// It builds upon the underlying `Arena`, providing type safety and automatic initialization of 
-/// allocated objects using `T::default()`. This makes it ideal for scenarios where a large number of 
-/// objects of type `T` need to be allocated efficiently, either for long-term storage or for 
+/// `TypedArena` is a specialized memory allocator designed for managing objects of a single type `T`.
+/// It builds upon the underlying `Arena`, providing type safety and automatic initialization of
+/// allocated objects using `T::default()`. This makes it ideal for scenarios where a large number of
+/// objects of type `T` need to be allocated efficiently, either for long-term storage or for
 /// short-lived usage with rapid recycling.
 ///
 /// # Type Parameters
 ///
-/// - `T`: The type of objects that this arena will manage. `T` must implement the `Default` and 
-///   `Sized` traits, ensuring that instances can be created with default values and that their 
+/// - `T`: The type of objects that this arena will manage. `T` must implement the `Default` and
+///   `Sized` traits, ensuring that instances can be created with default values and that their
 ///   size is known at compile-time.
 ///
 /// # Primary Use-Cases
 ///
 /// `TypedArena` is particularly useful in situations where:
-/// 
+///
 /// 1. **Long-Lived Allocations**: Objects are allocated once and used until the end of the program.
-/// 2. **Short-Lived Allocations**: Objects are allocated and then quickly discarded, with the 
-///    entire arena being rewound for reuse. This is efficient for temporary data structures 
+/// 2. **Short-Lived Allocations**: Objects are allocated and then quickly discarded, with the
+///    entire arena being rewound for reuse. This is efficient for temporary data structures
 ///    that need to be quickly recycled.
 ///
 /// # Example
@@ -624,12 +626,12 @@ impl Drop for Arena<'_> {
 /// let mut arena = TypedArena::<u32>::new(1024 * 1024).unwrap();
 /// let item = arena.alloc().unwrap();
 /// *item = 42;
-/// 
+///
 /// let array = arena.alloc_array(10).unwrap();
 /// for i in 0..10 {
 ///     array[i] = i as u32;
 /// }
-/// 
+///
 /// arena.rewind(); // All previous allocations are now invalid.
 /// ```
 pub struct TypedArena<'a, T: Default + Sized> {
@@ -640,9 +642,9 @@ pub struct TypedArena<'a, T: Default + Sized> {
 impl<'a, T: Default + Sized> TypedArena<'a, T> {
     /// Creates a new `TypedArena` with the specified size.
     ///
-    /// The `size` parameter specifies the amount of memory to reserve in the arena. It is 
-    /// recommended to choose a large size, especially for scenarios where many objects of 
-    /// type `T` will be allocated. The reserved memory is not immediately committed, so 
+    /// The `size` parameter specifies the amount of memory to reserve in the arena. It is
+    /// recommended to choose a large size, especially for scenarios where many objects of
+    /// type `T` will be allocated. The reserved memory is not immediately committed, so
     /// reserving more than necessary does not consume physical memory until allocations occur.
     ///
     /// # Errors
@@ -656,7 +658,7 @@ impl<'a, T: Default + Sized> TypedArena<'a, T> {
 
     /// Allocates a single instance of `T` in the arena and initializes it with the default value.
     ///
-    /// This function allocates memory for an instance of `T` and initializes it using `T::default()`. 
+    /// This function allocates memory for an instance of `T` and initializes it using `T::default()`.
     /// The returned reference points to the initialized object, which can be used immediately.
     ///
     /// # Errors
@@ -667,7 +669,7 @@ impl<'a, T: Default + Sized> TypedArena<'a, T> {
 
     /// Allocates an array of `T` elements in the arena and initializes them with the default value.
     ///
-    /// This function allocates memory for an array of `T` elements and initializes each element using 
+    /// This function allocates memory for an array of `T` elements and initializes each element using
     /// `T::default()`. The returned slice points to the initialized array, which can be used immediately.
     ///
     /// # Errors
@@ -678,13 +680,13 @@ impl<'a, T: Default + Sized> TypedArena<'a, T> {
 
     /// Rewinds the arena to its initial state, invalidating all previous allocations.
     ///
-    /// This method resets the arena, allowing it to be reused for new allocations. All previously 
-    /// allocated objects become invalid after this operation, and any attempt to access them will 
-    /// result in undefined behavior. In debug mode, the memory of the invalidated objects is 
+    /// This method resets the arena, allowing it to be reused for new allocations. All previously
+    /// allocated objects become invalid after this operation, and any attempt to access them will
+    /// result in undefined behavior. In debug mode, the memory of the invalidated objects is
     /// protected to help catch use-after-free bugs.
     ///
     /// # Usage
-    /// `rewind` is particularly useful in scenarios where the arena is used for temporary allocations 
+    /// `rewind` is particularly useful in scenarios where the arena is used for temporary allocations
     /// that need to be quickly discarded and recycled.
     pub fn rewind(&mut self) {
         self.arena.rewind();
@@ -741,9 +743,9 @@ mod test {
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[cfg(test)]
 mod macos_linux_tests {
-    use libc::{fork, waitpid, WIFEXITED, WIFSIGNALED, SIGSEGV};
-    use std::process;
     use super::*;
+    use libc::{fork, waitpid, SIGSEGV, WIFEXITED, WIFSIGNALED};
+    use std::process;
 
     #[test]
     fn test_crash_handling() {
@@ -772,4 +774,3 @@ mod macos_linux_tests {
         }
     }
 }
-
