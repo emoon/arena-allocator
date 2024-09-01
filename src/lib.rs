@@ -281,16 +281,6 @@ struct VmRange<'a> {
     marker: core::marker::PhantomData<&'a c_void>,
 }
 
-/// Specifies whether the memory should be protected after it is decommitted.
-/// This is useful for debugging purposes, as it can help catch use-after-free bugs.
-/// The way this works is that the memory is that all the memory is set as "no access".
-/// This means if some code is trying to access the memory it will cause a exception.
-///
-//enum UseSafteyRange {
-//    Yes,
-//    No,
-//}
-
 impl<'a> VmRange<'a> {
     pub fn new(reserved_size: usize) -> Result<Self, ArenaError> {
         let page_size = get_page_size();
