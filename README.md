@@ -1,4 +1,6 @@
-# arena-allocator
+[![Build Status](https://github.com/emoon/arena-allocator/workflows/CI/badge.svg)](https://github.com/emoon/arena-allocator/actions?workflow=Rust)
+[![Crates.io](https://img.shields.io/crates/v/arena-allocator.svg)](https://crates.io/crates/arena-allocator)
+[![Documentation](https://docs.rs/arena-allocator/badge.svg)](https://docs.rs/arena-allocator)
 
 `arena-allocator` is a linear memory allocator for Rust that provides efficient memory management for performance-critical code. The way it's implemented is by reserving a (large) virtual range of memory and then commiting memory as it needs it. 
 This means that reserving a large range (several Gigabytes) of memory is cheap, but actually using it will cause the OS to allocate physical memory. 
@@ -34,8 +36,8 @@ Example:
 use arena_allocator::{Arena, TypedArena, ArenaError};
 
 fn main() -> Result<(), ArenaError> {
-    // Create a new arena with 1024 bytes of reserved memory.
-    let mut arena = Arena::new(1024)?;
+    // Create a new arena with 1 GB bytes of reserved memory.
+    let mut arena = Arena::new(1 * 1024 * 1024 * 1024)?;
 
     // Allocate a single u32 and initialize it to 0.
     let num = arena.alloc_init::<u32>()?;
@@ -63,8 +65,8 @@ Example:
 use arena_allocator::{Arena, TypedArena, ArenaError};
 
 fn main() -> Result<(), ArenaError> {
-    // Create a new arena with 1024 bytes of reserved memory.
-    let mut arena = Arena::new(1024)?;
+    // Create a new arena with 1 GB bytes of reserved memory.
+    let mut arena = Arena::new(1 * 1024 * 1024 * 1024)?;
 
     // Allocate a single u32 and initialize it to 0.
     let num = arena.alloc_init::<u32>()?;
@@ -77,4 +79,15 @@ fn main() -> Result<(), ArenaError> {
     Ok(())
 }
 ```
+## License
 
+Licensed under either of
+
+ * Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
+ * MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
+
+at your option.
+
+### Contribution
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.

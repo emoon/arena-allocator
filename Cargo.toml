@@ -2,8 +2,12 @@
 name = "arena-allocator"
 version = "0.1.0"
 edition = "2021"
-
-[dependencies]
+authors = ["Daniel Collin <daniel@collin.com>"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/emoon/arena-allocator"
+categories = ["memory-management"]
+description = "Virtual memory based linear allocator"
+readme = "README.md"
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 libc = "0.2"
