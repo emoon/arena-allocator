@@ -244,7 +244,6 @@ mod windows {
         let mut old_protect = 0u32;
         let success = unsafe { VirtualProtect(ptr, size, PAGE_NOACCESS, &mut old_protect) };
         if success == 0 {
-            println
             return Err(ArenaError::ProtectionFailed(get_last_error_message()));
         }
         Ok(())
