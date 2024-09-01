@@ -1,4 +1,4 @@
-[![Build Status](https://github.com/emoon/arena-allocator/workflows/CI/badge.svg)](https://github.com/emoon/arena-allocator/actions?workflow=Rust)
+[![Build Status](https://github.com/emoon/arena-allocator/workflows/Rust/badge.svg)](https://github.com/emoon/arena-allocator/actions?workflow=Rust)
 [![Crates.io](https://img.shields.io/crates/v/arena-allocator.svg)](https://crates.io/crates/arena-allocator)
 [![Documentation](https://docs.rs/arena-allocator/badge.svg)](https://docs.rs/arena-allocator)
 
