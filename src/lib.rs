@@ -1,6 +1,24 @@
 use core::ffi::c_void;
 use std::result::Result;
 
+/// Represents errors that can occur when using the `arena-allocator`.
+///
+/// The `ArenaError` enum encapsulates different types of errors that might be encountered while 
+/// interacting with the `Arena` or `TypedArena`. These errors typically arise from issues 
+/// related to memory reservation, protection, or when the arena runs out of reserved memory.
+///
+/// # Variants
+///
+/// - `ReserveFailed(String)`: This error occurs when the initial reservation of virtual memory 
+///   fails. The associated string provides a description of the underlying issue.
+///
+/// - `ProtectionFailed(String)`: This error is returned when the memory protection mechanisms 
+///   fail. This is especially relevant in debug mode, where memory protection is used to detect 
+///   use-after-free bugs. The associated string provides a detailed explanation of the failure.
+///
+/// - `OutOfReservedMemory`: This error is triggered when an allocation request exceeds the 
+///   available reserved memory. It indicates that the arena has run out of its pre-reserved 
+///   virtual memory and cannot accommodate additional allocations without further action.
 #[derive(Debug)]
 pub enum ArenaError {
     ReserveFailed(String),
@@ -226,6 +244,7 @@ mod windows {
         let mut old_protect = 0u32;
         let success = unsafe { VirtualProtect(ptr, size, PAGE_NOACCESS, &mut old_protect) };
         if success == 0 {
+            println
             return Err(ArenaError::ProtectionFailed(get_last_error_message()));
         }
         Ok(())
