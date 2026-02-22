@@ -345,7 +345,7 @@ impl<'a> VmRange<'a> {
         let alignment = core::mem::align_of::<T>();
         let slice = self.alloc_raw(size, alignment)?;
         let ptr = slice.as_mut_ptr() as *mut T;
-        Ok(unsafe { std::slice::from_raw_parts_mut(ptr, size) })
+        Ok(unsafe { std::slice::from_raw_parts_mut(ptr, count) })
     }
 
     /// Allocates an array of `T` elements in the arena and initializes them with the default
