@@ -319,7 +319,7 @@ impl<'a> VmRange<'a> {
 
         // If we have already committed the memory, we can just return a slice
         if new_pos < self.committed_size {
-            let return_slice = std::slice::from_raw_parts_mut(self.ptr as *mut u8, size);
+            let return_slice = std::slice::from_raw_parts_mut(self.ptr.add(self.pos) as *mut u8, size);
             self.pos = new_pos;
             return Ok(return_slice);
         }
