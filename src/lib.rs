@@ -311,17 +311,17 @@ impl<'a> VmRange<'a> {
         alignment: usize,
     ) -> Result<&'a mut [u8], ArenaError> {
         let new_pos = self.pos + Self::align_pow2(size, alignment);
-        let commit_size = Self::align_pow2(size, self.page_size);
-
-        if self.committed_size + commit_size > self.reserved_size {
-            return Err(ArenaError::OutOfReservedMemory);
-        }
 
         // If we have already committed the memory, we can just return a slice
         if new_pos < self.committed_size {
             let return_slice = std::slice::from_raw_parts_mut(self.ptr.add(self.pos) as *mut u8, size);
             self.pos = new_pos;
             return Ok(return_slice);
+        }
+
+        let commit_size = Self::align_pow2(size, self.page_size);
+        if self.committed_size + commit_size > self.reserved_size {
+            return Err(ArenaError::OutOfReservedMemory);
         }
 
         commit_memory(self.ptr.add(self.committed_size), commit_size)?;
