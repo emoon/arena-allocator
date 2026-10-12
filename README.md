@@ -2,18 +2,18 @@
 [![Crates.io](https://img.shields.io/crates/v/arena-allocator.svg)](https://crates.io/crates/arena-allocator)
 [![Documentation](https://docs.rs/arena-allocator/badge.svg)](https://docs.rs/arena-allocator)
 
-`arena-allocator` is a linear memory allocator for Rust that provides efficient memory management for performance-critical code. The way it's implemented is by reserving a (large) virtual range of memory and then commiting memory as it needs it. 
+`arena-allocator` is a linear memory allocator for Rust that provides efficient memory management for performance-critical code. The way it's implemented is by reserving a (large) virtual range of memory and then committing memory as it needs it.
 This means that reserving a large range (several Gigabytes) of memory is cheap, but actually using it will cause the OS to allocate physical memory. 
 This is useful for cases where you need to allocate a lot of memory, or don't know how much memory you need.
 
 There are two main uses for this crate:
 
 1. Long-lived memory: If you have allocations that live for the entire lifetime of your program.
-2. Temporary memory: If you have a lot of temporary allocations that is only needed during a short period of time. 
+2. Temporary memory: If you have a lot of temporary allocations that are only needed during a short period of time.
 
-## Saftey
+## Safety
 
-This crate should be considered a advanced form of memory management and should be used with caution. 
+This crate should be considered an advanced form of memory management and should be used with caution.
 The crate is designed to be used in performance-critical code and breaks some of the safety guarantees provided by Rust's memory model. 
 In particular, the arena-allocator crate allows for the reuse of memory after it has been deallocated, which can lead to use-after-free bugs if not used correctly. 
 It is important to understand the implications of using this crate and to follow best practices for memory management to avoid memory leaks and other issues.
