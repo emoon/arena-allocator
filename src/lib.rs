@@ -453,7 +453,7 @@ impl<'a> VmRange<'a> {
 /// automatically disabled in release builds for optimal performance.
 pub struct Arena<'a> {
     current: VmRange<'a>,
-    //#[cfg(debug_assertions)]
+    #[cfg(debug_assertions)]
     prev: VmRange<'a>,
 }
 
@@ -750,6 +750,7 @@ mod test {
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[cfg(test)]
+#[cfg(debug_assertions)]
 mod macos_linux_tests {
     use super::*;
     use libc::{fork, waitpid, SIGSEGV, WIFEXITED, WIFSIGNALED};
